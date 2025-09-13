@@ -1,45 +1,199 @@
-<!doctype html>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Info Videos — host</title>
-<style>
-  :root { --fg:#111; --muted:#666; --bg:#f7f7f7; }
-  html,body{height:100%} body{margin:0;background:var(--bg);font:14px/1.5 system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;color:var(--fg)}
-  .wrap{max-width:1100px;margin:32px auto;padding:0 16px}
-  h1{margin:0 0 6px;font-size:18px}
-  .muted{color:var(--muted);margin:0 0 20px}
-  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px}
-  .card{background:#fff;border:1px solid #ddd;border-radius:8px;overflow:hidden}
-  .card header{padding:8px 10px;border-bottom:1px solid #eee;font-weight:600;font-size:12px}
-  video{width:100%;height:180px;object-fit:cover;display:block;background:#000}
-  a{color:inherit;text-decoration:underline}
-</style>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>notbad — Video Tabs V1-1</title>
+  <style>
+    html, body { height:100%; margin:0; }
+    body { background:#f5f5f5; font-family:Inter, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; }
+    .wrap { width:100%; height:100%; display:flex; flex-direction:column; }
+    .header { padding:10px 14px; border-bottom:1px solid #eee; display:flex; justify-content:space-between; align-items:center; }
+    .header h1 { margin:0; font-size:14px; font-weight:600; }
+    .hint { font-size:12px; color:#666; }
+    #nbvt-root { flex:1; position:relative; overflow:hidden; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="header">
+      <h1>notbad — Video Tabs <span style="opacity:.6;">V1-1</span></h1>
+      <div class="hint">Click a ⓧ to close; a new one spawns elsewhere.</div>
+    </div>
+    <div id="nbvt-root"></div>
+  </div>
 
-<div class="wrap">
-  <h1>Info Videos (hosted)</h1>
-  <p class="muted">These files live in <code>/videos</code>. Click a filename to download or play inline below.</p>
-  <div id="grid" class="grid"></div>
-</div>
+  <!-- === V1-1 widget start === -->
+  <style>
+    #nbvt-root .nbvt-tab {
+      position:absolute; background:#d1d5db; border:1px solid #000; border-radius:3px;
+      user-select:none; display:flex; flex-direction:column; overflow:hidden;
+    }
+    #nbvt-root .nbvt-header {
+      background:#fff; border-bottom:1px solid #000; height:14px; padding:0 2px;
+      display:flex; align-items:center; justify-content:flex-end; flex-shrink:0;
+    }
+    #nbvt-root .nbvt-controls { display:flex; gap:2px; }
+    #nbvt-root .nbvt-btn {
+      width:12px; height:12px; border:1px solid #000; border-radius:50%; background:#fff;
+      display:flex; align-items:center; justify-content:center; cursor:pointer; padding:0; line-height:0;
+    }
+    #nbvt-root .nbvt-btn svg { width:7px; height:7px; }
+    #nbvt-root .nbvt-content { width:100%; flex:1; background:#000; }
+    #nbvt-root .nbvt-content video { width:100%; height:100%; object-fit:cover; display:block; }
+  </style>
 
-<script>
-  // If you change the count, just update N:
-  const N = 10;
-  const BASE = './videos/'; // folder in your repo
+  <script>
+  (() => {
+    const root = document.getElementById('nbvt-root');
 
-  const grid = document.getElementById('grid');
-  for (let i = 1; i <= N; i++) {
-    const n = String(i).padStart(2, '0');
-    const file = `INFO_VIDEOS_${n}.mp4`;
-    const url  = `${BASE}${file}`;
+    // 👇 Point to your GitHub Pages folder
+    const BASE = 'https://kkeminck.github.io/Info-video/videos/';
+    const videoList = Array.from({ length: 10 }, (_, i) => {
+      const n = String(i + 1).padStart(2, '0');
+      return { url: `${BASE}INFO_VIDEOS_${n}.mp4` };
+    });
 
-    const card = document.createElement('div');
-    card.className = 'card';
-    card.innerHTML = `
-      <header><a href="${url}" download>${file}</a></header>
-      <video controls preload="metadata">
-        <source src="${url}" type="video/mp4" />
-      </video>
-    `;
-    grid.appendChild(card);
-  }
-</script>
+    const MAX_DESKTOP = 4, MAX_MOBILE = 3;
+    const DESKTOP_MIN = 0.16, DESKTOP_MAX = 0.34;
+    const MOBILE_MIN  = 0.38, MOBILE_MAX  = 0.60;
+    const EDGE_MARGIN = 12;
+    const GAP_PCT_W   = 0.12;
+    const TRY_LIMIT   = 28;
+
+    let highestZ = 5;
+    const activeIdx = new Set();
+    const tabs = new Set();
+
+    const io = new IntersectionObserver(es=>{
+      es.forEach(e=>{
+        const v=e.target;
+        if(e.isIntersecting) v.play().catch(()=>{});
+        else v.pause();
+      });
+    },{root,threshold:0.01});
+
+    const rand=(a,b)=>Math.random()*(b-a)+a;
+    const randi=(a,b)=>Math.floor(rand(a,b+1));
+    const clamp=(n,min,max)=>Math.max(min,Math.min(max,n));
+
+    function pickVideo(){
+      if(activeIdx.size>=videoList.length) return randi(0,videoList.length-1);
+      let i; do{ i=randi(0,videoList.length-1) } while(activeIdx.has(i));
+      return i;
+    }
+
+    function rectsOverlap(a,b,gap){
+      return !(a.x + a.w + gap <= b.x ||
+               b.x + b.w + gap <= a.x ||
+               a.y + a.h + gap <= b.y ||
+               b.y + b.h + gap <= a.y);
+    }
+
+    function findSpreadPosition(w,h,tabW,tabH,existingRects,gap){
+      let tries=0, localW=tabW, localH=tabH;
+      while(tries<TRY_LIMIT){
+        const x = clamp(rand(EDGE_MARGIN, w - localW - EDGE_MARGIN), EDGE_MARGIN, w - localW - EDGE_MARGIN);
+        const y = clamp(rand(EDGE_MARGIN, h - localH - EDGE_MARGIN), EDGE_MARGIN, h - localH - EDGE_MARGIN);
+        const candidate = {x,y,w:localW,h:localH};
+        let clash=false;
+        for(const r of existingRects){ if(rectsOverlap(candidate,r,gap)){clash=true;break;} }
+        if(!clash) return {x,y,w:localW,h:localH};
+        tries++;
+        if(tries===Math.floor(TRY_LIMIT*0.7)){ localW*=0.9; localH*=0.9; }
+      }
+      return {
+        x: clamp(rand(EDGE_MARGIN, w - localW - EDGE_MARGIN), EDGE_MARGIN, w - localW - EDGE_MARGIN),
+        y: clamp(rand(EDGE_MARGIN, h - localH - EDGE_MARGIN), EDGE_MARGIN, h - localH - EDGE_MARGIN),
+        w: localW, h: localH
+      };
+    }
+
+    function createTab(existingRects){
+      const idx = pickVideo(); activeIdx.add(idx);
+
+      const tab = document.createElement('div');
+      tab.className='nbvt-tab';
+      tab.style.zIndex = randi(1,9);
+
+      const W=root.clientWidth, H=root.clientHeight;
+      const mobile=W<768;
+      const minP = mobile?MOBILE_MIN:DESKTOP_MIN;
+      const maxP = mobile?MOBILE_MAX:DESKTOP_MAX;
+
+      let tabW = Math.round(rand(W*minP, W*maxP));
+      let tabH = Math.round(tabW*(9/16));
+
+      const gap = Math.max(EDGE_MARGIN, W*GAP_PCT_W);
+      const pos = findSpreadPosition(W,H,tabW,tabH,existingRects,gap);
+
+      tab.style.width  = pos.w+'px';
+      tab.style.height = pos.h+'px';
+      tab.style.transform = `translate3d(${pos.x}px, ${pos.y}px, 0)`;
+
+      const header=document.createElement('div'); header.className='nbvt-header';
+      const controls=document.createElement('div'); controls.className='nbvt-controls';
+      const close=document.createElement('button'); close.className='nbvt-btn';
+      close.innerHTML='<svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><line x1="4" y1="4" x2="12" y2="12" stroke="black" stroke-width="2"/><line x1="12" y1="4" x2="4" y2="12" stroke="black" stroke-width="2"/></svg>';
+      controls.appendChild(close); header.appendChild(controls);
+
+      const content=document.createElement('div'); content.className='nbvt-content';
+      const video=document.createElement('video');
+      video.muted=true; video.autoplay=true; video.loop=true; video.playsInline=true;
+      video.preload='metadata'; video.setAttribute('webkit-playsinline','');
+      video.innerHTML=`<source src="${videoList[idx].url}" type="video/mp4">`;
+      content.appendChild(video); io.observe(video);
+
+      tab.appendChild(header); tab.appendChild(content);
+      root.appendChild(tab); tabs.add(tab);
+
+      tab.addEventListener('pointerdown',()=>{ tab.style.zIndex=++highestZ },{passive:true });
+
+      close.addEventListener('click',(e)=>{
+        e.stopPropagation();
+        destroyTab(tab,idx);
+        setTimeout(()=>spawnOne(),30);
+      },{passive:true});
+
+      const rect = {x:pos.x,y:pos.y,w:pos.w,h:pos.h};
+      return rect;
+    }
+
+    function destroyTab(tab, idx){
+      try{
+        const v=tab.querySelector('video');
+        if(v){ io.unobserve(v); v.pause(); v.src=''; v.load(); }
+      }catch{}
+      tabs.delete(tab);
+      if(idx!=null) activeIdx.delete(idx);
+      tab.remove();
+    }
+
+    function spawnOne(existingRects){
+      const rects = existingRects || [...tabs].map(t=>{
+        const m = t.style.transform.match(/translate3d\(([-\d.]+)px,\s*([-\d.]+)px/);
+        const x = m ? parseFloat(m[1]) : 0;
+        const y = m ? parseFloat(m[2]) : 0;
+        return {x,y,w:t.offsetWidth,h:t.offsetHeight};
+      });
+      rects.push(createTab(rects));
+    }
+
+    function init(){
+      for(const t of [...tabs]) destroyTab(t,null);
+      activeIdx.clear(); highestZ=5;
+
+      const count=(root.clientWidth<768)?MAX_MOBILE:MAX_DESKTOP;
+      const rects=[];
+      for(let i=0;i<count;i++){
+        rects.push(createTab(rects));
+      }
+    }
+
+    new ResizeObserver(()=>init()).observe(root);
+    init();
+  })();
+  </script>
+  <!-- === V1-1 widget end === -->
+</body>
+</html>
